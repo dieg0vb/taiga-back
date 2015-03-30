@@ -38,6 +38,14 @@ def _get_impl_key_from_typename(typename:str, event_type:str):
     raise Exception("Not valid typename parameter")
 
 
+def build_user_namespace(user:object):
+    return "{0}:{1}".format("user", user.id)
+
+
+def build_project_namespace(project:object):
+    return "{0}:{1}".format("project", project.id)
+
+
 def _add_to_object_timeline(obj:object, instance:object, event_type:str, namespace:str="default", extra_data:dict={}):
     assert isinstance(obj, Model), "obj must be a instance of Model"
     assert isinstance(instance, Model), "instance must be a instance of Model"
@@ -49,7 +57,9 @@ def _add_to_object_timeline(obj:object, instance:object, event_type:str, namespa
         content_object=obj,
         namespace=namespace,
         event_type=event_type_key,
-        data=impl(instance, extra_data=extra_data)
+        project=instance.project,
+        data=impl(instance, extra_data=extra_data),
+        data_content_type = ContentType.objects.get_for_model(obj.__class__),
     )
 
 

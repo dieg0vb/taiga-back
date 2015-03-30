@@ -20,7 +20,7 @@ from taiga.projects.history import services as history_services
 from taiga.projects.models import Project
 from taiga.users.models import User
 from taiga.projects.history.choices import HistoryType
-from taiga.timeline.service import push_to_timeline
+from taiga.timeline.service import push_to_timeline, build_user_namespace, build_project_namespace
 
 # TODO: Add events to followers timeline when followers are implemented.
 # TODO: Add events to project watchers timeline when project watchers are implemented.
@@ -39,10 +39,7 @@ def on_new_history_entry(sender, instance, created, **kwargs):
     model = history_services.get_model_from_key(instance.key)
     pk = history_services.get_pk_from_key(instance.key)
     obj = model.objects.get(pk=pk)
-    if model is Project:
-        project = obj
-    else:
-        project = obj.project
+    project = obj.project
 
     if instance.type == HistoryType.create:
         event_type = "create"
@@ -59,8 +56,26 @@ def on_new_history_entry(sender, instance, created, **kwargs):
 
     owner = User.objects.get(id=instance.user["pk"])
 
-    _push_to_timeline(project, obj, event_type, extra_data=extra_data)
-    _push_to_timeline(owner, obj, event_type, extra_data=extra_data)
+    # Project timeline
+    _push_to_timeline(project, obj, event_type,
+        namespace=build_project_namespace(project),
+        extra_data=extra_data)
+
+    # User timeline
+    _push_to_timeline(owner, obj, event_type,
+        namespace=build_user_namespace(owner),
+        extra_data=extra_data)
+
+    # Related people: watchers and assigned to
+    if hasattr(obj, "assigned_to") and obj.assigned_to and owner != obj.assigned_to:
+        _push_to_timeline(obj.assigned_to, obj, event_type,
+            namespace=build_user_namespace(owner),
+            extra_data=extra_data)
+
+    watchers = obj.watchers.exclude(id=instance.user["pk"])
+    _push_to_timeline(watchers, obj, event_type,
+        namespace=build_user_namespace(owner),
+        extra_data=extra_data)
 
 
 def create_membership_push_to_timeline(sender, instance, **kwargs):
