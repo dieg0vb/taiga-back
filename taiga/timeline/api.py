@@ -57,19 +57,36 @@ class TimelineViewSet(ReadOnlyListViewSet):
     def list(self, request):
         return response.NotFound()
 
+    def get_timeline(self, obj):
+        raise NotImplementedError
+
     def retrieve(self, request, pk):
         obj = self.get_object()
         self.check_permissions(request, "retrieve", obj)
 
-        qs = service.get_timeline(obj)
+        qs = self.get_timeline(obj)
         return self.response_for_queryset(qs)
+
+
+class ProfileTimeline(TimelineViewSet):
+    content_type = "users.user"
+    permission_classes = (permissions.UserTimelinePermission,)
+
+    def get_timeline(self, user):
+        return service.get_profile_timeline(user, accessing_user=self.request.user)
 
 
 class UserTimeline(TimelineViewSet):
     content_type = "users.user"
     permission_classes = (permissions.UserTimelinePermission,)
 
+    def get_timeline(self, user):
+        return service.get_user_timeline(user, accessing_user=self.request.user)
+
 
 class ProjectTimeline(TimelineViewSet):
     content_type = "projects.project"
     permission_classes = (permissions.ProjectTimelinePermission,)
+
+    def get_timeline(self, obj):
+        return service.get_project_timeline(user, accessing_user=self.request.user)

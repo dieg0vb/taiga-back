@@ -38,7 +38,7 @@ def custom_add_to_object_timeline(obj:object, instance:object, event_type:str, n
         event_type=event_type_key,
         project=instance.project,
         data=impl(instance, extra_data=extra_data),
-        data_content_type = ContentType.objects.get_for_model(obj.__class__),
+        data_content_type = ContentType.objects.get_for_model(instance.__class__),
         created = created,
     ))
 

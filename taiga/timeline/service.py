@@ -14,10 +14,13 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-from django.db.models import Model
-from django.db.models.query import QuerySet
-from functools import partial, wraps
+from django.apps import apps
 from django.contrib.contenttypes.models import ContentType
+from django.db.models import Model
+from django.db.models import Q
+from django.db.models.query import QuerySet
+
+from functools import partial, wraps
 
 from taiga.base.utils.db import get_typename_for_model_class
 from taiga.celery import app
@@ -59,7 +62,7 @@ def _add_to_object_timeline(obj:object, instance:object, event_type:str, namespa
         event_type=event_type_key,
         project=instance.project,
         data=impl(instance, extra_data=extra_data),
-        data_content_type = ContentType.objects.get_for_model(obj.__class__),
+        data_content_type = ContentType.objects.get_for_model(instance.__class__),
     )
 
 
@@ -91,18 +94,60 @@ def get_timeline(obj, namespace=None):
     return timeline
 
 
-def get_profile_timeline(user):
-    return get_timeline(user)
+def filter_timeline_for_user(timeline, user):
+    # Filtering public projects
+    tl_filter = Q(project__is_private=False)
+
+    # Filtering private project with some public parts
+    content_types = {
+        "view_project": ContentType.objects.get(app_label="projects", model="project"),
+        "view_milestones": ContentType.objects.get(app_label="milestones", model="milestone"),
+        "view_us": ContentType.objects.get(app_label="userstories", model="userstory"),
+        "view_tasks": ContentType.objects.get(app_label="tasks", model="task"),
+        "view_issues": ContentType.objects.get(app_label="issues", model="issue"),
+        "view_wiki_pages": ContentType.objects.get(app_label="wiki", model="wikipage"),
+        "view_wiki_links": ContentType.objects.get(app_label="wiki", model="wikilink"),
+    }
+
+    for content_type_key, content_type in content_types.items():
+        tl_filter |= Q(project__is_private=True,
+                                            project__anon_permissions__contains=[content_type_key],
+                                            data_content_type=content_type)
+
+    # Filtering private projects where user is member
+    if not user.is_anonymous():
+        membership_model = apps.get_model('projects', 'Membership')
+        memberships_qs = membership_model.objects.filter(user=user)
+        for membership in memberships_qs:
+            for content_type_key, content_type in content_types.items():
+                if content_type_key in membership.role.permissions or membership.is_owner:
+                    tl_filter |= Q(project=membership.project, data_content_type=content_type)
+
+    timeline = timeline.filter(tl_filter)
+    return timeline
 
 
-def get_user_timeline(user):
+def get_profile_timeline(user, accessing_user=None):
+    timeline = get_timeline(user)
+    if accessing_user is not None:
+        timeline = filter_timeline_for_user(timeline, accessing_user)
+    return timeline
+
+
+def get_user_timeline(user, accessing_user=None):
     namespace = build_user_namespace(user)
-    return get_timeline(user, namespace)
+    timeline = get_timeline(user, namespace)
+    if accessing_user is not None:
+        timeline = filter_timeline_for_user(timeline, accessing_user)
+    return timeline
 
 
-def get_project_timeline(project):
+def get_project_timeline(project, accessing_user=None):
     namespace = build_project_namespace(project)
-    return get_timeline(project, namespace)
+    timeline = get_timeline(project, namespace)
+    if accessing_user is not None:
+        timeline = filter_timeline_for_user(timeline, accessing_user)
+    return timeline
 
 
 def register_timeline_implementation(typename:str, event_type:str, fn=None):
