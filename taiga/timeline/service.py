@@ -78,12 +78,31 @@ def push_to_timeline(objects, instance:object, event_type:str, namespace:str="de
         raise Exception("Invalid objects parameter")
 
 
-def get_timeline(obj, namespace="default"):
+def get_timeline(obj, namespace=None):
     assert isinstance(obj, Model), "obj must be a instance of Model"
     from .models import Timeline
 
     ct = ContentType.objects.get_for_model(obj.__class__)
-    return Timeline.objects.filter(content_type=ct, object_id=obj.pk, namespace=namespace).order_by("-created")
+    timeline = Timeline.objects.filter(content_type=ct, object_id=obj.pk)
+    if namespace is not None:
+        timeline = timeline.filter(namespace=namespace)
+
+    timeline = timeline.order_by("-created")
+    return timeline
+
+
+def get_profile_timeline(user):
+    return get_timeline(user)
+
+
+def get_user_timeline(user):
+    namespace = build_user_namespace(user)
+    return get_timeline(user, namespace)
+
+
+def get_project_timeline(project):
+    namespace = build_project_namespace(project)
+    return get_timeline(project, namespace)
 
 
 def register_timeline_implementation(typename:str, event_type:str, fn=None):
