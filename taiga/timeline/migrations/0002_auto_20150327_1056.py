@@ -13,7 +13,7 @@ from taiga.projects.history.models import HistoryEntry
 from taiga.timeline.models import Timeline
 from taiga.timeline.service import (_add_to_object_timeline, _get_impl_key_from_model,
     _timeline_impl_map)
-from taiga.timeline.signals import on_new_history_entry
+from taiga.timeline.signals import on_new_history_entry, _push_to_timelines
 from taiga.users.models import User
 
 from unittest.mock import patch
@@ -27,6 +27,8 @@ timelime_objects = []
 created = None
 
 def custom_add_to_object_timeline(obj:object, instance:object, event_type:str, namespace:str="default", extra_data:dict={}):
+    global created
+    global timelime_objects
     assert isinstance(obj, Model), "obj must be a instance of Model"
     assert isinstance(instance, Model), "instance must be a instance of Model"
     event_type_key = _get_impl_key_from_model(instance.__class__, event_type)
@@ -44,24 +46,25 @@ def custom_add_to_object_timeline(obj:object, instance:object, event_type:str, n
 
 
 def generate_timeline(apps, schema_editor):
-    """
-    # Projects api wasn't a HistoryResourceMixin so we can't interate on the HistoryEntries in this case
-    for project in Project.objects.order_by("created_date").iterator():
-        print("Project:", project.created_date)
-        extra_data = {
-            "values_diff": {},
-            "user": {
-                "pk": project.owner.id,
-                "user_name": project.owner.get_full_name(),
-            },
-        }
-
-        push_to_timeline(project, project, "create", project.created_date, extra_data=extra_data)
-        push_to_timeline(project.owner, project, "create", project.created_date, extra_data=extra_data)
-
-    Timeline.objects.bulk_create(timelime_objects, batch_size=10000)
-    """
+    global created
+    global timelime_objects
     with patch('taiga.timeline.service._add_to_object_timeline', new=custom_add_to_object_timeline):
+        # Projects api wasn't a HistoryResourceMixin so we can't interate on the HistoryEntries in this case
+        for project in Project.objects.order_by("created_date").iterator():
+            created = project.created_date
+            print("Project:", created)
+            extra_data = {
+                "values_diff": {},
+                "user": {
+                    "pk": project.owner.id,
+                    "user_name": project.owner.get_full_name(),
+                },
+            }
+            _push_to_timelines(project, project.owner, project, "create", extra_data=extra_data)
+
+        Timeline.objects.bulk_create(timelime_objects, batch_size=10000)
+        timelime_objects = []
+
         for historyEntry in HistoryEntry.objects.order_by("created_at").iterator():
             print("History entry:", historyEntry.created_at)
             try:
@@ -70,7 +73,7 @@ def generate_timeline(apps, schema_editor):
             except ObjectDoesNotExist as e:
                 print("Ignoring")
 
-    Timeline.objects.bulk_create(timelime_objects, batch_size=10000)
+        Timeline.objects.bulk_create(timelime_objects, batch_size=10000)
 
 class Migration(migrations.Migration):
 
